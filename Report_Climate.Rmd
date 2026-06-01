@@ -1,0 +1,417 @@
+---
+title: 'Complete Analytical Report: Historical Climate Series of Piracicaba'
+author: "Ricardo Antonio Ruiz-Cardozo"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+    code_folding: show
+  pdf_document:
+    toc: true
+subtitle: "LCF5900 - Open Science and Reproducible Data"
+---
+
+```{r setup, include=FALSE}
+# Global configuration for code chunks
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+## Introduction
+This document reflects the complete workflow of open data analysis for the **LCF5900** course. Here, we present 15 analytical steps, starting from raw data extraction to the application of non-parametric tests and *Machine Learning* projections with the **Prophet** algorithm, ensuring transparency and reproducibility (*Open Science*).
+
+---
+
+## 1. Setup and Memory Cleanup
+We start by ensuring that the R environment is clean and ready for processing.
+
+```{r passo_1}
+rm(list=ls(all=TRUE))
+gc()
+
+# Loading essential packages
+library(tidyverse)
+library(rio)
+library(lubridate)
+library(zoo)
+library(ggcorrplot)
+library(prophet)
+```
+
+---
+
+## 2. Data Import
+We connect directly to the public repository on GitHub to extract the dataset in its original state.
+
+```{r passo_2}
+url_1   <- "https://github.com/FlorestaR/dados/blob/main/X_PIRACLIM/"
+xls_2   <- "DadosClima_Piracicaba.xlsx"
+prm_3   <- "?raw=true"
+gitFile <- paste0(url_1, xls_2, prm_3)
+
+my_col_types <- c(rep("text", 8), rep("numeric", 16))
+sheetName    <- "DadosClima_Piracicaba"
+df <- import(gitFile, which = sheetName, col_types = my_col_types)
+df <- df %>% mutate(across(4:8, factor)) %>% tibble()
+df$TMED <- as.numeric(df$TMED)
+```
+
+---
+
+## 3. General Data Preparation
+We create the `Data` variable and filter the historical series from 1950 onwards, ensuring data density and record reliability.
+
+```{r passo_3}
+df_clima <- df %>%
+  mutate(
+    Data    = make_date(Ano, Mes, Dia),
+    TMAX    = as.numeric(TMAX),
+    Estacao = as.factor(Estacao)
+  ) %>%
+  drop_na(TMAX, Estacao)
+
+df_recente <- df_clima %>% filter(Ano >= 1950)
+```
+
+---
+
+## 4. Descriptive Analysis: Maximum Temperature
+Basic statistics of TMAX segmented by seasons of the year.
+
+```{r passo_4}
+tabela_descritiva <- df_recente %>%
+  group_by(Estacao) %>%
+  summarise(
+    Mean_TMAX         = round(mean(TMAX, na.rm = TRUE), 1),
+    Max_Peak          = max(TMAX, na.rm = TRUE),
+    Min_Registered    = min(TMAX, na.rm = TRUE),
+    Standard_Dev      = round(sd(TMAX, na.rm = TRUE), 2)
+  )
+
+print(tabela_descritiva)
+
+ggplot(df_recente, aes(x = Data, y = TMAX, color = Estacao)) +
+  geom_line(alpha = 0.4) + geom_point(size = 1.5, alpha = 0.8) +
+  # Keeping the Portuguese keys to match the dataset, but translating the legend
+  scale_color_manual(name = "Season:",
+                     labels = c("Verão" = "Summer", "Outono" = "Autumn", 
+                                "Inverno" = "Winter", "Primavera" = "Spring"),
+                     values = c("Verão" = "red", "Outono" = "orange", 
+                                "Inverno" = "blue", "Primavera" = "forestgreen")) +
+  labs(title = "Maximum Temperature Time Series in Piracicaba", 
+       x = "Year", y = "TMAX (°C)") +
+  theme_minimal() + theme(legend.position = "bottom")
+```
+**Interpretation:** The series reveals strong thermal oscillation. Winter, despite having the lowest average, presents the highest standard deviation, harboring extreme heat days close to 40°C.
+
+---
+
+## 5. Area Chart: Thermal Amplitude
+Visualizing the "width" of the daily temperature range (Minimum to Maximum).
+
+```{r passo_5}
+df_plot_area <- df_recente %>%
+  mutate(TMED = as.numeric(TMED), TMAX = as.numeric(TMAX), TMIN = as.numeric(TMIN)) %>%
+  drop_na(Data, TMED, TMAX, TMIN) 
+
+ggplot(df_plot_area) +
+  geom_ribbon(aes(x = Data, ymin = TMIN, ymax = TMAX, fill = "Amplitude"), alpha = 0.3) +
+  geom_line(aes(x = Data, y = TMED, color = "Average"), linewidth = 0.8) +
+  scale_color_manual(name = "Line:", values = c("Average" = "black")) +
+  scale_fill_manual(name = "Area:", values = c("Amplitude" = "grey50")) +
+  labs(title = "Evolution of Thermal Amplitude", x = "", y = "Temperature (°C)") +
+  scale_x_date(date_labels = "%Y", date_breaks = "10 years") + theme_minimal()
+```
+
+---
+
+## 6. Simple Time Series of Rain
+Observing the raw volume of rainfall over time.
+
+```{r passo_6}
+ggplot(df_recente, aes(x = Data, y = as.numeric(Chuva), color = Estacao)) +
+  geom_line(alpha = 0.4) + geom_point(size = 1, alpha = 0.4) +
+  scale_color_manual(values = c("Verão" = "red", "Outono" = "orange", 
+                                "Inverno" = "blue", "Primavera" = "forestgreen")) +
+  labs(title = "Raw Rainfall Time Series", x = "Year", y = "Rainfall (mm)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+---
+
+## 7. Moving Average of Precipitation by Quarter
+To isolate the noise of daily rain, we applied a 30-day moving average partitioned by quarter, sorted chronologically.
+
+```{r passo_7, fig.height=8}
+ordem_trimestres <- c("JFM", "FMA", "MAM", "AMJ", "MJJ", "JJA", "JAS",
+                      "ASO", "SON", "OND", "NDJ", "DJF")
+
+df_chuva <- df_recente %>%
+  mutate(Chuva = as.numeric(Chuva), Trimestre = factor(Trimestre, levels = ordem_trimestres)) %>%
+  arrange(Data) %>% 
+  mutate(Chuva_Movel_30d = rollmean(Chuva, k = 30, fill = NA, align = "right")) %>%
+  drop_na(Chuva_Movel_30d, Trimestre)
+
+ggplot(df_chuva, aes(x = Data, y = Chuva_Movel_30d, color = Trimestre)) +
+  geom_line(alpha = 0.8) + facet_wrap(~Trimestre, ncol = 4) + 
+  scale_color_viridis_d(option = "turbo") + 
+  labs(title = "Seasonality: Rainfall Moving Average (30 days)", y = "Average (mm)") +
+  theme_minimal() + theme(legend.position = "none", strip.text = element_text(face = "bold"))
+```
+**Interpretation:** This proves the severe drought in the middle of the year (JJA/JAS) and the torrential summers (DJF/JFM) in Piracicaba.
+
+---
+
+## 8. Exploratory Analysis of the ENSO Phenomenon (ClassNino)
+Relationship between El Niño / La Niña phases and the maximum temperature in the city.
+
+```{r passo_8}
+df_nino <- df_clima %>% filter(!is.na(ClassNino) & ClassNino != "") %>%
+  mutate(ClassNino = as.factor(ClassNino))
+
+ggplot(df_nino, aes(x = ClassNino, y = TMAX, fill = ClassNino)) +
+  geom_boxplot(alpha = 0.7) + scale_fill_brewer(palette = "Set2") +
+  labs(title = "Impact of Phenomena on Maximum Temperature", 
+       x = "Climate Phase", y = "TMAX (°C)") +
+  theme_minimal() + theme(legend.position = "none")
+```
+
+---
+
+## 9. Statistics: ENSO Influence on Rainfall (Complete Series)
+Non-parametric Kruskal-Wallis test (robust alternative to ANOVA).
+
+```{r passo_9}
+df_chuva_nino <- df_clima %>% filter(!is.na(ClassNino) & ClassNino != "", !is.na(Chuva)) %>%
+  mutate(ClassNino = as.factor(ClassNino), Chuva = as.numeric(Chuva))
+
+kruskal.test(Chuva ~ ClassNino, data = df_chuva_nino)
+```
+
+---
+
+## 10. Extra Statistics: Influence on Summer Rainfall
+Isolating the rainy months to prevent the winter drought from masking the oceanic impact.
+
+```{r passo_10}
+df_verao <- df_clima %>% filter(Estacao == "Verão", !is.na(ClassNino), 
+                                ClassNino != "", !is.na(Chuva)) %>%
+  mutate(ClassNino = as.factor(ClassNino), Chuva = as.numeric(Chuva))
+
+kruskal.test(Chuva ~ ClassNino, data = df_verao)
+
+ggplot(df_verao, aes(x = ClassNino, y = Chuva, fill = ClassNino)) +
+  geom_violin(alpha = 0.5, trim = FALSE) + 
+  geom_boxplot(width = 0.1, fill = "white", alpha = 0.8) +
+  scale_y_continuous(trans = "pseudo_log", breaks = c(0, 1, 5, 10, 50, 100)) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Rainfall Extremes in Summer", y = "Rainfall (mm) - Pseudo-Log") +
+  theme_minimal() + theme(legend.position = "none")
+```
+**Interpretation:** The *p-value* confirms statistical influence. The distribution reveals a counter-intuitive pattern: it is **La Niña (StrgNina)** and the Neutral phase that most concentrate torrential extreme events (close to 100mm) in the local summer, not the strong El Niño.
+
+---
+
+## 11. Correlation Analysis (Spearman)
+Ideal for dealing with variables that do not follow a normal distribution and have many climatic *outliers*.
+
+```{r passo_11}
+df_cor <- df_recente %>% select(TMED, TMAX, TMIN, Chuva, MeanONI) %>%
+  mutate(across(everything(), as.numeric)) %>% drop_na()
+matriz_cor <- cor(df_cor, method = "spearman")
+p_mat <- cor_pmat(df_cor, method = "spearman")
+
+ggcorrplot(matriz_cor, method = "square", type = "lower", lab = TRUE, 
+           p.mat = p_mat, sig.level = 0.05, insig = "blank", 
+           colors = c("#0072B2", "white", "#D55E00"), 
+           title = "Climatic Correlation Matrix")
+```
+
+---
+
+## 12. Times of Thermal Extremes
+Categorizing continuous data to answer: In what period of the day do absolute peaks of heat and cold occur?
+
+```{r passo_12}
+df_horas <- df_recente %>%
+  drop_na(TMAX_hora, TMIN_hora) %>%
+  mutate(
+    Hora_TMAX = floor(as.numeric(TMAX_hora) / 100), Hora_TMIN = floor(as.numeric(TMIN_hora) / 100),
+    Periodo_TMAX = case_when(Hora_TMAX >= 0 & Hora_TMAX < 6 ~ "1. Dawn",
+                             Hora_TMAX >= 6 & Hora_TMAX < 12 ~ "2. Morning",
+                             Hora_TMAX >= 12 & Hora_TMAX < 18 ~ "3. Afternoon",
+                             Hora_TMAX >= 18 & Hora_TMAX <= 24 ~ "4. Night", 
+                             TRUE ~ NA_character_),
+    Periodo_TMIN = case_when(Hora_TMIN >= 0 & Hora_TMIN < 6 ~ "1. Dawn",
+                             Hora_TMIN >= 6 & Hora_TMIN < 12 ~ "2. Morning",
+                             Hora_TMIN >= 12 & Hora_TMIN < 18 ~ "3. Afternoon",
+                             Hora_TMIN >= 18 & Hora_TMIN <= 24 ~ "4. Night", 
+                             TRUE ~ NA_character_)
+  ) %>% drop_na(Periodo_TMAX, Periodo_TMIN)
+
+df_horas_long <- df_horas %>% select(Data, Periodo_TMAX, Periodo_TMIN) %>%
+  pivot_longer(cols = c(Periodo_TMAX, Periodo_TMIN), names_to = "Tipo", 
+               values_to = "Periodo") %>% 
+  mutate(Tipo = recode(Tipo, "Periodo_TMAX" = "Maximum Temperature",
+                       "Periodo_TMIN" = "Minimum Temperature"))
+
+ggplot(df_horas_long, aes(x = Tipo, fill = Periodo)) +
+  geom_bar(position = "fill", color = "white", width = 0.6) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_viridis_d(option = "mako", begin = 0.2, end = 0.9) +
+  labs(title = "Frequency: In which shift do daily extremes occur?",
+       x = "", y = "Proportion", fill = "Time of Day:") + theme_minimal()
+```
+
+---
+
+## 13. History of the ONI Index (NOAA Style)
+The "breathing" of the Equatorial Pacific Ocean and the alternation between warming (El Niño) and cooling (La Niña).
+
+```{r passo_13}
+df_oni <- df_recente %>% filter(!is.na(MeanONI)) %>% mutate(MeanONI = as.numeric(MeanONI)) %>%
+  group_by(Ano, Mes) %>% summarise(MeanONI = mean(MeanONI, na.rm = TRUE),
+                                   .groups = 'drop') %>%
+  mutate(Data_Mes = make_date(Ano, Mes, 1)) %>% arrange(Data_Mes)
+
+ggplot(df_oni, aes(x = Data_Mes, y = MeanONI, fill = MeanONI)) +
+  geom_col(width = 35) + 
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "darkred") +
+  geom_hline(yintercept = -0.5, linetype = "dashed", color = "darkblue") +
+  labs(title = "Evolution of the ONI Index (El Niño and La Niña Thresholds)",
+       x = "Year", y = "Anomaly (°C)") +
+  theme_minimal()
+```
+
+---
+
+## 14. Advanced ARIMA Forecast
+
+```{r}
+
+library(forecast)
+
+ano_inicial <- min(as.numeric(df_oni$Ano))
+mes_inicial <- min(as.numeric(df_oni$Mes[df_oni$Ano == ano_inicial]))
+
+ts_oni <- ts(df_oni$MeanONI, start = c(ano_inicial, mes_inicial),
+             frequency = 12)
+
+modelo_arima <- auto.arima(ts_oni)
+
+cat("\n--- Summary of Automatically Chosen ARIMA Model ---\n")
+print(summary(modelo_arima))
+
+# Forecasting
+# We will predict the next 24 months (2 years)
+previsao_oni <- forecast(modelo_arima, h = 24)
+
+# Visualizing the Forecast
+grafico_previsao <- autoplot(previsao_oni) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", 
+             color = "darkred", alpha = 0.7) +
+  geom_hline(yintercept = -0.5, linetype = "dashed", color = "darkblue", alpha = 0.7) +
+  labs(
+    title = "Oceanic Niño Index (MeanONI) Forecast with ARIMA Model",
+    subtitle = "Projection for the next 24 months with confidence intervals (80% and 95%)",
+    x = "Year",
+    y = "Projected ONI Index",
+    caption = "Critical Note: 
+    Univariate forecasts lose accuracy in the long run due to climate complexity."
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+
+print(grafico_previsao)
+
+```
+
+```{r}
+# 1. Ensure required packages are active
+library(forecast)
+library(lubridate)
+
+# 2. Time Series (ts) Object Creation
+ano_inicial <- min(as.numeric(df_oni$Ano))
+mes_inicial <- min(as.numeric(df_oni$Mes[df_oni$Ano == ano_inicial]))
+
+ts_oni <- ts(df_oni$MeanONI, start = c(ano_inicial, mes_inicial), frequency = 12)
+
+# 3. Adjusting the ARIMA Model
+modelo_arima <- auto.arima(ts_oni)
+
+# 4. Dynamic Calculation of Forecast Horizon (h) until December 2050
+# Identifies the last available date in the historical series
+ultima_data <- max(df_oni$Data_Mes)
+
+# Calculates the exact number of months needed to reach the end of 2050
+meses_ate_2050 <- (2050 - year(ultima_data)) * 12 + (12 - month(ultima_data))
+
+# 5. Long-Term Forecasting
+previsao_oni_2050 <- forecast(modelo_arima, h = meses_ate_2050)
+
+# 6. Expanded Chart Visualization
+grafico_previsao_2050 <- autoplot(previsao_oni_2050) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", 
+             color = "darkred", alpha = 0.7) +
+  geom_hline(yintercept = -0.5, linetype = "dashed", 
+             color = "darkblue", alpha = 0.7) +
+  labs(
+    title = "Long-Term Projection of the ONI Index (Until 2050)",
+    subtitle = paste("ARIMA model projecting the next", meses_ate_2050,
+                     "months based on history"),
+    x = "Year",
+    y = "Projected ONI Index",
+    caption = "Open Science Note: 
+    Purely statistical models lose cyclical capacity in long horizons."
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14)
+  )
+
+# Display the chart
+print(grafico_previsao_2050)
+```
+
+**Interpretation:** Statistically, the ARIMA model shows us that it is impossible to predict whether the year 2050 will have an El Niño or La Niña using only the index's past. The convergence of the line towards zero and the total widening of the margin of error prove that the climate is a dynamic and complex system that requires coupled physical models for long-term forecasts.
+
+---
+
+## 15. Advanced Forecast: Machine Learning with Prophet (Meta)
+To project the future behavior of the Pacific Ocean robustly and resistant to *outliers*, we use the **Prophet** model.
+
+```{r passo_14_prophet, fig.height=7}
+# Preparation in the format required by the Prophet package ('ds' and 'y')
+df_prophet <- df_oni %>% select(Data_Mes, MeanONI) %>% 
+  rename(ds = Data_Mes, y = MeanONI)
+
+# Model Training
+modelo_prophet <- prophet(df_prophet, daily.seasonality=FALSE, weekly.seasonality=FALSE)
+
+# Future DataFrame creation (next 24 months)
+futuro_oni <- make_future_dataframe(modelo_prophet, 
+                                    periods = 24, freq = 'month')
+
+# Prediction
+previsao_prophet <- predict(modelo_prophet, futuro_oni)
+
+# Overall Forecast Chart
+plot(modelo_prophet, previsao_prophet) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "darkred") +
+  geom_hline(yintercept = -0.5, linetype = "dashed", color = "darkblue") +
+  labs(title = "ONI Index Forecast using Prophet", x = "Year", y = "ONI Index") +
+  theme_minimal()
+```
+
+### 15.1 Seasonal Components of the Prophet Model
+One of the great advantages of modern *Data Science* is the ability to decompose the components of predictions.
+
+```{r passo_14_componentes, fig.height=6}
+prophet_plot_components(modelo_prophet, previsao_prophet)
+```
+**Final Scientific Conclusion:** The decomposition generated by Prophet (bottom chart) mathematically extracts the seasonal cycle of the ocean, highlighting that anomalies tend to gain strength at the end of the year (November/December) and weaken around May. This tool allows us to model short-term forecasts with high robustness for decision-making in the agro-climatic sector.
