@@ -7,9 +7,6 @@
 rm(list=ls(all=TRUE))
 gc()
 
-# Define working directory (Adjust if necessary)
-setwd("C:/Users/Ricardo Ruiz/Desktop/Doutorado Estatistica Exp Agronomica/03 Semestre/06 LCF5900 Open Science and Reproducible Data/02 Class")
-
 # Load Packages
 library(tidyverse)
 library(rio); install_formats()
@@ -22,7 +19,7 @@ library(zoo)
 
 # 2. DATA IMPORT ===============================================================
 # Define GitHub URL where climate data is stored
-url_1   <- "https://github.com/FlorestaR/dados/blob/main/X_PIRACLIM/"
+url_1   <- "https://github.com/raruizc/ClimateTimeSeriesPiracicaba/blob/main/"
 xls_2   <- "DadosClima_Piracicaba.xlsx"
 prm_3   <- "?raw=true"
 gitFile <- paste0(url_1, xls_2, prm_3)
@@ -78,14 +75,14 @@ grafico_tmax <- ggplot(df_recente, aes(x = Data, y = TMAX, color = Estacao)) +
   # Translating legend labels while keeping the original data mapping
   scale_color_manual(
     name = "Season:",
-    labels = c("Verão" = "Summer", "Outono" = "Autumn", "Inverno" = "Winter", "Primavera" = "Spring"),
-    values = c("Verão" = "red", "Outono" = "orange", "Inverno" = "blue", "Primavera" = "forestgreen")
+    labels = c("VerC#o" = "Summer", "Outono" = "Autumn", "Inverno" = "Winter", "Primavera" = "Spring"),
+    values = c("VerC#o" = "red", "Outono" = "orange", "Inverno" = "blue", "Primavera" = "forestgreen")
   ) +
   labs(
     title    = "Maximum Temperature Time Series in Piracicaba",
     subtitle = "Recent period (1950-2026) highlighted by seasons",
     x        = "Measurement Date",
-    y        = "Maximum Temperature (°C)"
+    y        = "Maximum Temperature (B0C)"
   ) +
   theme_minimal() +
   theme(
@@ -114,7 +111,7 @@ grafico_area_clima <- ggplot(df_plot_area) +
     title    = "Evolution of Thermal Amplitude in Piracicaba",
     subtitle = "Daily average temperature and its extremes",
     x        = "",
-    y        = "Temperature (°C)"
+    y        = "Temperature (B0C)"
   ) +
   scale_x_date(date_labels = "%Y", date_breaks = "5 years") +
   theme(
@@ -136,8 +133,8 @@ grafico_chuva <- ggplot(df_recente, aes(x = Data, y = Chuva, color = Estacao)) +
   geom_point(size = 1, alpha = 0.4) +
   scale_color_manual(
     name = "Season:",
-    labels = c("Verão" = "Summer", "Outono" = "Autumn", "Inverno" = "Winter", "Primavera" = "Spring"),
-    values = c("Verão" = "red", "Outono" = "orange", "Inverno" = "blue", "Primavera" = "forestgreen")
+    labels = c("VerC#o" = "Summer", "Outono" = "Autumn", "Inverno" = "Winter", "Primavera" = "Spring"),
+    values = c("VerC#o" = "red", "Outono" = "orange", "Inverno" = "blue", "Primavera" = "forestgreen")
   ) +
   labs(
     title    = "Raw Rainfall Time Series in Piracicaba",
@@ -212,8 +209,8 @@ grafico_impacto_nino <- ggplot(df_nino, aes(x = ClassNino, y = TMAX, fill = Clas
   labs(
     title    = "Impact of Climatic Phenomena on Maximum Temperature",
     subtitle = paste("Data analyzed since", ano_inicio_nino, "in Piracicaba"),
-    x        = "El Niño / La Niña Classification",
-    y        = "Maximum Temperature (°C)"
+    x        = "El NiC1o / La NiC1a Classification",
+    y        = "Maximum Temperature (B0C)"
   ) +
   theme_minimal() +
   theme(legend.position = "none")
@@ -230,7 +227,7 @@ grafico_timeline <- ggplot(df_nino_mensal, aes(x = Data_Mes, y = 1, fill = Class
   geom_tile() +
   scale_y_continuous(breaks = NULL) +
   labs(
-    title    = "Timeline: El Niño and La Niña Phases",
+    title    = "Timeline: El NiC1o and La NiC1a Phases",
     subtitle = "Occurrence frequency over the years",
     x        = "Year",
     y        = "",
@@ -268,7 +265,7 @@ grafico_chuva_nino <- ggplot(df_chuva_nino, aes(x = ClassNino, y = Chuva, fill =
   labs(
     title    = "Precipitation Distribution by Climatic Phenomenon",
     subtitle = "Logarithmic scale to highlight extreme rain events",
-    x        = "Climate Phase (El Niño / La Niña)",
+    x        = "Climate Phase (El NiC1o / La NiC1a)",
     y        = "Rainfall Volume (mm) - Pseudo-Log Scale"
   ) +
   theme_minimal() +
@@ -279,7 +276,7 @@ print(grafico_chuva_nino)
 
 # 8.2 Kruskal-Wallis - Summer Focus
 df_verao <- df_clima %>%
-  filter(Estacao == "Verão", !is.na(ClassNino), ClassNino != "", !is.na(Chuva)) %>%
+  filter(Estacao == "VerC#o", !is.na(ClassNino), ClassNino != "", !is.na(Chuva)) %>%
   mutate(
     ClassNino = as.factor(ClassNino),
     Chuva     = as.numeric(Chuva)
@@ -295,7 +292,7 @@ grafico_chuva_verao <- ggplot(df_verao, aes(x = ClassNino, y = Chuva, fill = Cla
   scale_y_continuous(trans = "pseudo_log", breaks = c(0, 1, 5, 10, 50, 100)) +
   scale_fill_brewer(palette = "Dark2") +
   labs(
-    title    = "Impact of El Niño / La Niña on Summer Rainfall",
+    title    = "Impact of El NiC1o / La NiC1a on Summer Rainfall",
     subtitle = "Daily precipitation distribution isolating only the rainy season (Piracicaba)",
     x        = "Climate Phase",
     y        = "Rainfall Volume (mm) - Pseudo-Log Scale"
@@ -420,10 +417,10 @@ grafico_oni <- ggplot(df_oni, aes(x = Data_Mes, y = MeanONI, fill = MeanONI)) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "darkred", alpha = 0.7) +
   geom_hline(yintercept = -0.5, linetype = "dashed", color = "darkblue", alpha = 0.7) +
   labs(
-    title = "Evolution of the Oceanic Niño Index (MeanONI)",
+    title = "Evolution of the Oceanic NiC1o Index (MeanONI)",
     subtitle = "Dashed lines indicate thresholds (+0.5 and -0.5) for phenomenon configuration",
     x = "Year",
-    y = "Ocean Temperature Anomaly (°C)"
+    y = "Ocean Temperature Anomaly (B0C)"
   ) +
   scale_x_date(date_labels = "%Y", date_breaks = "5 years") +
   theme_minimal() +

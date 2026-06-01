@@ -3,14 +3,14 @@ title: 'Complete Analytical Report: Historical Climate Series of Piracicaba'
 author: "Ricardo Antonio Ruiz-Cardozo"
 date: "`r Sys.Date()`"
 output:
+  pdf_document:
+    toc: true
   html_document:
     toc: true
     toc_float: true
     theme: flatly
     highlight: tango
     code_folding: show
-  pdf_document:
-    toc: true
 subtitle: "LCF5900 - Open Science and Reproducible Data"
 ---
 
@@ -47,7 +47,7 @@ library(prophet)
 We connect directly to the public repository on GitHub to extract the dataset in its original state.
 
 ```{r passo_2}
-url_1   <- "https://github.com/FlorestaR/dados/blob/main/X_PIRACLIM/"
+url_1   <- "https://github.com/raruizc/ClimateTimeSeriesPiracicaba/blob/main/"
 xls_2   <- "DadosClima_Piracicaba.xlsx"
 prm_3   <- "?raw=true"
 gitFile <- paste0(url_1, xls_2, prm_3)
