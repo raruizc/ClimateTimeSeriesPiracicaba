@@ -53,4 +53,4 @@ Our group's philosophy is heavily based on **Open Science**. To reproduce our an
 
 1. **Clone this repository:**
 ```bash
-   git clone [https://github.com/YOUR_USERNAME/REPOSITORY_NAME.git](https://github.com/YOUR_USERNAME/REPOSITORY_NAME.git)
+   git clone [https://github.com/raruizc/ClimateTimeSeriesPiracicaba.git](https://github.com/raruizc/ClimateTimeSeriesPiracicaba.git)
